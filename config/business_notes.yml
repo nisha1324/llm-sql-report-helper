@@ -1,0 +1,30 @@
+# Business definitions and data gotchas, added to the schema card so generated
+# SQL uses the same metric definitions as the finance team. Each fact was
+# checked on Chinook v1.4.5 (see tests/test_schema.py).
+
+about: >
+  Chinook is a fictional online music store. Customers buy single tracks;
+  every purchase is an invoice with one line per track. Sales run from
+  2009-01-01 to 2013-12-22. Prices are in US dollars.
+
+metrics:
+  revenue: "SUM(Invoice.Total), or SUM(InvoiceLine.UnitPrice * InvoiceLine.Quantity) at line level. Both give 2,328.60 in total."
+  orders: "COUNT(*) of Invoice rows (an order is an invoice)."
+  average order value: "revenue / orders."
+  units sold: "SUM(InvoiceLine.Quantity). Quantity is always 1, so this is also the number of invoice lines."
+  active customers: "customers with at least one invoice in the period."
+  customer's sales rep: "Customer.SupportRepId -> Employee.EmployeeId."
+
+# Lookup columns whose values are listed in the card, so filters use exact spellings.
+list_values: [Customer.Country, Employee.Title, Genre.Name, MediaType.Name, Playlist.Name]
+
+gotchas:
+  - "Dates are text like '2013-12-22 00:00:00'. Use strftime('%Y', InvoiceDate) for the year and strftime('%Y-%m', InvoiceDate) for the month."
+  - "There is no cost, margin, marketing spend, stock or returns data: profit or ROI questions can't be answered."
+  - "Track.UnitPrice is the list price (0.99 for audio, 1.99 for video). Use InvoiceLine.UnitPrice for what was paid."
+  - "Invoice.BillingCountry equals Customer.Country on every invoice; either works for revenue by country."
+  - "1,519 of 3,503 tracks have never been sold; use LEFT JOIN from Track to find them."
+  - "Track.Composer is NULL for 978 tracks, Customer.Company for 49 customers and Customer.State for 29."
+  - "Playlist names are not unique (e.g. two 'Music' playlists); group by PlaylistId."
+  - "Only the three Sales Support Agents (EmployeeId 3, 4, 5) have customers. Employee.ReportsTo is the manager's EmployeeId."
+  - "SQLite has no MEDIAN or PERCENTILE function, and integer division truncates: multiply by 1.0 for ratios."
