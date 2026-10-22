@@ -1,0 +1,131 @@
+# Vocabulary for the offline backend (sqlhelper/offline.py): a small semantic
+# layer that maps business words to the metric definitions in
+# business_notes.yml, the way a BI tool's search box works.
+#
+# Rule for every word below: it comes from the metric definitions or gotchas
+# in business_notes.yml, a table/column name on the schema card, or a question
+# in eval/questions.yml (the development set; `# dev qNN` says which).
+# Nothing comes from eval/heldout.yml, so the held-out score shows how far
+# this vocabulary carries to wording it has never seen.
+#
+# Words match whole words, with an optional plural "s". Expressions use the
+# table aliases below; an expression's aliases decide which joins it needs.
+
+# Where a metric is counted. Each grain is a FROM clause plus the aliases it provides.
+grains:
+  invoice: {from: "Invoice i", provides: [i]}
+  line: {from: "InvoiceLine l JOIN Invoice i ON i.InvoiceId = l.InvoiceId", provides: [l, i]}
+  customer: {from: "Customer c", provides: [c]}
+
+joins:  # alias -> the JOIN that brings it in (a join can only use aliases already present)
+  c: "JOIN Customer c ON c.CustomerId = i.CustomerId"
+  e: "JOIN Employee e ON e.EmployeeId = c.SupportRepId"
+  t: "JOIN Track t ON t.TrackId = l.TrackId"
+  g: "JOIN Genre g ON g.GenreId = t.GenreId"
+  m: "JOIN MediaType m ON m.MediaTypeId = t.MediaTypeId"
+  al: "JOIN Album al ON al.AlbumId = t.AlbumId"
+  ar: "JOIN Artist ar ON ar.ArtistId = al.ArtistId"
+
+# Checked in this order, so the more specific metric wins ("average order value" before "order").
+metrics:
+  average_order_value:
+    words: [average order value]                    # business_notes
+    expr: {invoice: "AVG(i.Total)"}
+    round: 2
+  units:
+    words: [units sold, unit, "sold (?:the )?(?:most )?tracks"]   # business_notes; dev q20
+    expr: {line: "SUM(l.Quantity)"}
+  active_customers:
+    # "customers" near a buying word; business_notes defines active customers
+    words: ["customers? (?:\\w+ ){0,2}(?:bought|buy|active)", active customer]   # dev q05, q22
+    expr: {invoice: "COUNT(DISTINCT i.CustomerId)", line: "COUNT(DISTINCT i.CustomerId)"}
+  revenue:
+    words: [revenue, total, spend, spent, bring in, earned, generated]   # business_notes; dev q10, q18, q19, q21, q25, q27
+    expr: {invoice: "SUM(i.Total)", line: "SUM(l.UnitPrice * l.Quantity)"}
+    round: 2
+  orders:
+    words: [order, invoice]                         # business_notes: an order is an invoice
+    expr: {invoice: "COUNT(*)", line: "COUNT(DISTINCT l.InvoiceId)"}
+  customers:
+    words: [customer]                               # schema card
+    expr: {customer: "COUNT(*)"}
+
+# Things to group or rank by. `select` is [expression, column name] pairs, per
+# grain where the expression differs; `group` is the key (ids, so two artists
+# with the same name stay apart).
+dimensions:
+  rep:
+    words: [sales support agent, sales rep, rep, agent]   # business_notes; dev q27, q28
+    select: [["e.FirstName || ' ' || e.LastName", rep]]
+    group: e.EmployeeId
+  media_type:
+    words: [media type]                             # schema card (MediaType)
+    select: [[m.Name, media_type]]
+    group: m.MediaTypeId
+  year:
+    words: [year]                                   # business_notes
+    select: [["strftime('%Y', i.InvoiceDate)", year]]
+    time: true
+  month:
+    words: [month, monthly]                         # business_notes; dev q07
+    select: [["strftime('%Y-%m', i.InvoiceDate)", month]]
+    time: true
+  country:
+    words: [country, countries]                     # schema card
+    select: [[i.BillingCountry, country]]
+    select_by_grain: {customer: [[c.Country, country]]}
+  genre:
+    words: [genre]
+    select: [[g.Name, genre]]
+    group: g.GenreId
+  album:
+    words: [album]                                  # an album title isn't unique, so its artist comes with it
+    select: [[al.Title, album], [ar.Name, artist]]
+    group: al.AlbumId
+  artist:
+    words: [artist]
+    select: [[ar.Name, artist]]
+    group: ar.ArtistId
+  customer:
+    words: [customer]
+    select: [[c.FirstName, first_name], [c.LastName, last_name]]
+    group: c.CustomerId
+  order:
+    words: [order, invoice]
+    select: [[i.InvoiceId, invoice_id]]
+    group: i.InvoiceId
+    default_metric: revenue                         # "3 largest orders" means by value
+
+# A dimension word only groups when one of these comes just before it (up to
+# two words in between: "top 5 genres", "each sales support agent").
+# "all" in between cancels it: "across all years" is a total.
+group_words: [by, per, each, every, which, what, top, across]   # dev q03, q06, q10, q11, q15, q19, q27
+ranking:
+  descending: [top, most, highest, largest]         # dev q06, q08, q10, q18, q32
+
+share_words: [share, percentage]                    # dev q12
+
+# Lookup values that become filters when named (from the schema card's value lists).
+filter_values:
+  Customer.Country: {grain_expr: {default: i.BillingCountry, customer: c.Country}}
+  Genre.Name: {grain_expr: {default: g.Name}}
+
+# Requests to decline before any SQL is written.
+decline:
+  # Personal data: the restricted column names in policy.yml (split into words)
+  # are added in code; these are extra ways of asking for them.
+  privacy: [how old, age]                           # dev d03
+  # A request that starts with a write verb: SQL's own write verbs plus dev wording.
+  write_verbs: [delete, update, insert, drop, alter, create, replace, raise]   # dev d04, d05
+  # business_notes: no cost, margin, marketing spend, stock or returns data.
+  no_data: [cost, margin, marketing, stock, return, profit, roi]
+
+# Question shapes this layer can't express. It says so instead of guessing
+# (a metric-by-dimension query that ignored the condition would be wrong).
+unsupported:
+  a comparison between periods or groups: [than, compared, change, growth]      # dev q09, q25
+  a condition on absence: [never, without, not]                                  # dev q16, q17
+  a threshold on a group: [at least, only, more than, fewer than]                # dev q13, q14, q31
+  a first-purchase cohort: [first purchase, new customer]                        # dev q23
+  a ratio of two metrics: [on average, average number, per customer, per order]  # dev q14, q24, q30
+  the reporting hierarchy: [manager, report to, reports to]                      # dev q29
