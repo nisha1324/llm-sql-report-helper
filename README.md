@@ -1,6 +1,6 @@
 # LLM SQL report helper
 
-**Status: in progress.** Part 1 (guard rails, schema card, evaluation set) is done. The LLM backend, the offline path and the scored evaluation come next ([roadmap](#roadmap)).
+**Status: in progress.** Part 1 (guard rails, schema card, evaluation set) and Part 2 (an offline backend and the scored evaluation) are done. The Claude backend and the report writer come next ([roadmap](#roadmap)).
 
 Ask a business question in plain English, get back the SQL, the result and a short report. The point of this project is the part that makes that **safe and measurable**: a guard that the database itself enforces, a shared definition of each metric, and a set of business questions with known answers to score any model against.
 
@@ -76,11 +76,56 @@ Before any model is scored, [`scripts/check_gold.py`](scripts/check_gold.py) che
 
 That cross-check paid off immediately. My first year-on-year gold query filtered `WHERE year > '2009'` *before* the `LAG()` window function ran, so 2010 had no previous year and came out empty. The published figures caught it. It's exactly the kind of plausible-looking mistake the evaluation exists to catch in generated SQL.
 
+### 4. The offline path and the evaluation harness (Part 2)
+
+**The harness** ([`sqlhelper/evaluate.py`](sqlhelper/evaluate.py)) scores any backend the same way: ask each question, run the SQL through the production guard, compare with the gold result. Every answerable question ends up in one of six outcomes: correct, **wrong** (the SQL ran but the result differs), rejected by the guard, abstained, wrongly declined, or a backend error. Two numbers matter: **accuracy** (correct out of all questions) and **right when it answered** (correct out of correct + wrong), which tells a manager how far to trust a number the tool does give.
+
+**A held-out set, written first.** [`eval/heldout.yml`](eval/heldout.yml) asks all 39 questions again in different words ("yearly sales figures" for "revenue by year"). It was committed before any backend code (`326b041`, then the backend in `d122930`), and the backend was never changed after it was scored on it. A big drop from one set to the other means a backend learned the wording, not the business question.
+
+**The offline backend** ([`sqlhelper/offline.py`](sqlhelper/offline.py), vocabulary in [`config/semantic_layer.yml`](config/semantic_layer.yml)) needs no API key. It works like a BI tool's search box, a small semantic layer: it reads a question as metric + dimensions + filters + ranking and builds one SELECT from the metric definitions on the schema card. It picks the grain (invoice, invoice line or customer) and the joins from the table aliases each expression needs. Before writing SQL it:
+
+- **declines** requests for personal data (words taken from the restricted columns in `policy.yml`), requests that start with a write verb, and questions about data the business doesn't hold (profit, margin, marketing...)
+- **abstains** on question shapes it can't express, such as period comparisons, "never", thresholds, first-purchase cohorts, ratios and the reporting hierarchy, and says why. A metric-by-dimension query that quietly dropped the condition would be a confident wrong number.
+
+Every word in the vocabulary comes from the business notes, the schema card or a development-set question, and is tagged with its source, so the held-out set really is unseen wording.
+
+**Results** ([`results/EVAL_offline.md`](results/EVAL_offline.md), per question in [`results/eval_offline.csv`](results/eval_offline.csv)):
+
+![Offline path: 59% right on the development set, 19% reworded](results/charts/eval_offline.png)
+
+| | development set | held-out (reworded) |
+|---|---|---|
+| Correct | 19 of 32 (59%) | 6 of 32 (19%) |
+| Wrong (ran, result differs) | 2 | **10** |
+| Abstained | 11 | 16 |
+| Right when it answered | 90% | **38%** |
+| Must-decline questions declined | 7 of 7 | 4 of 7 (2 abstained, 1 ran a count) |
+
+By level on the development set: easy 7/8, medium 10/15, hard 2/9. Reworded: 4/8, 2/15, 0/9.
+
+**Failure analysis.** On the development set, 11 of 13 misses are honest abstentions. The two wrong answers lose a condition: "bought something **in every year** from 2009 to 2013" was read as a grouping and became active customers per year (5 rows), and "customers who buy **on behalf of a company**" counted all 59 instead of 49. I left both unfixed: a special case for each would only make the development score look better.
+
+The reworded set shows how brittle keyword matching is. Of 26 misses, 8 abstentions are vocabulary gaps ("sales" isn't one of its revenue words, "tracks sold" isn't one of its unit words). The 10 wrong answers fall into four groups:
+
+| What went wrong | Questions | Example |
+|---|---|---|
+| A ranking or grouping word it doesn't know | 4 | "Which rep has the **biggest** customer list?" listed all 3 reps; "our five biggest **markets**" gave one grand total |
+| The wrong metric | 3 | "how much did an **average invoice** come to" counted invoices; "customers who **placed an order**" counted orders |
+| A condition silently dropped | 2 | "countries with **just a single customer**" and "customers with a **company name on file**" both counted every customer |
+| A bug the development set didn't hit | 1 | in "each support agent's customers", "customers" was matched before "agent", so it grouped by customer *and* agent (59 rows) |
+
+The last one is a real bug: dimensions are matched longest word first rather than in reading order. I didn't fix it after seeing the held-out results, because the held-out score would then no longer be blind. It goes on the list for the next version, along with the vocabulary gaps.
+
+**The guard held when the decline step missed.** "What's their number?" (phone) and "When were our support agents born?" got no answer, rather than a decline with a reason. "*Remove* all the 2009 invoices" isn't on the write-verb list, so the backend ran a read-only count. The database refuses writes, so nothing changed. But the user got a number instead of "I can't change data".
+
 ## So what for the business (so far)
 
 - **Safety can't depend on the model behaving.** The privacy and write rules are enforced by the database engine, so a confused or manipulated model gets a clear refusal, not the data.
 - **"How accurate is it?" needs a measured answer.** With 32 questions and known answers, any model or prompt change gets a score before it goes in front of managers.
 - **Metric definitions are a governance decision, not a prompt detail.** Writing them once in a reviewed file means a generated "revenue" uses the same definition as finance.
+- **Test on wording the tool hasn't seen, or the score flatters it.** The same rules scored 59% on the questions they were built from and 19% on the same questions reworded. A demo on the builder's own questions would have overstated it three times over.
+- **Track "right when it answered", not just accuracy.** Abstaining costs a manager a minute; a wrong number can end up in a board pack. The offline path's trustworthiness fell from 90% to 38% on new wording, and that's the figure that decides whether it can go in front of users.
+- **A keyword layer suits fixed menus, not free text.** With pick-lists for metric, dimension and filter, the same semantic layer would be dependable. For free-text questions it isn't, which is the case for an LLM backend. That backend has to beat 19% accuracy and 38% right-when-answered on the held-out set, and decline all 7 must-decline cases, before it's worth its cost.
 
 ## How to run
 
@@ -90,7 +135,8 @@ pip install -r requirements.txt
 python scripts/download_data.py          # 1.07 MB, SHA-256 checked
 python -m scripts.build_schema_card      # docs/SCHEMA_CARD.md
 python -m scripts.check_gold             # results/GOLD_ANSWERS.md, exits 1 on any failed check
-pytest                                   # 81 tests; the guard tests use a small fixture database
+python -m scripts.evaluate               # offline backend on both sets: results/EVAL_offline.md, CSV, chart (~2 s)
+pytest                                   # 109 tests; the guard tests use a small fixture database
 ```
 
 ## Project structure
@@ -98,19 +144,25 @@ pytest                                   # 81 tests; the guard tests use a small
 ```
 config/policy.yml          allowed tables, restricted columns, limits
 config/business_notes.yml  metric definitions and data gotchas for the schema card
+config/semantic_layer.yml  the offline backend's vocabulary, each word tagged with its source
 sqlhelper/db.py            guarded executor (shape check, read-only, authorizer, limits)
 sqlhelper/schema.py        schema card builder
 sqlhelper/compare.py       result comparator (execution accuracy)
-sqlhelper/questions.py     evaluation set loader and validation
-eval/questions.yml         32 answerable + 7 must-decline questions with gold SQL
-scripts/                   download, build the card, check the gold set
+sqlhelper/questions.py     evaluation set and held-out loaders, with validation
+sqlhelper/backend.py       the Answer every backend returns
+sqlhelper/offline.py       offline backend (semantic layer: decline, abstain or write SQL)
+sqlhelper/evaluate.py      evaluation harness (outcomes, accuracy, right when it answered)
+eval/questions.yml         32 answerable + 7 must-decline questions with gold SQL (development set)
+eval/heldout.yml           the same 39 questions reworded (held-out set)
+scripts/                   download, build the card, check the gold set, evaluate a backend
 docs/SCHEMA_CARD.md        what the model sees
 results/GOLD_ANSWERS.md    gold answers and checks
+results/EVAL_offline.md    offline backend scores, failures and abstain reasons
 ```
 
 ## Roadmap
 
 - [x] Part 1: guard, schema card, evaluation set and comparator
-- [ ] Part 2: an offline path (no API key needed) and the evaluation harness, with accuracy by level and area plus a failure analysis
+- [x] Part 2: an offline path (no API key needed), a held-out paraphrase set and the evaluation harness, with accuracy by level and area plus a failure analysis
 - [ ] Part 3: Claude backend (prompted with the schema card; one retry using the guard's reason) and the must-decline cases. It runs only if `ANTHROPIC_API_KEY` is set in a gitignored `.env`; otherwise it is tested with a mock
 - [ ] Part 4: report writer (every number in the text must come from the result), then findings and recommendations
