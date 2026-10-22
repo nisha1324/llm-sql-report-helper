@@ -4,7 +4,7 @@ import yaml
 from sqlhelper.compare import compare
 from sqlhelper.db import QueryRejected, run_query
 from sqlhelper.policy import DB_PATH
-from sqlhelper.questions import load_questions
+from sqlhelper.questions import load_heldout, load_questions
 
 needs_chinook = pytest.mark.skipif(not DB_PATH.exists(), reason="run scripts/download_data.py first")
 
@@ -69,3 +69,30 @@ def test_guard_rejects_every_naive_privacy_or_write_query():
         if d.naive_sql:
             with pytest.raises(QueryRejected):
                 run_query(d.naive_sql)
+
+
+def test_heldout_inherits_gold_and_covers_every_question():
+    answerable, decline = load_questions()
+    held_a, held_d = load_heldout()
+    assert [q.id for q in held_a] == [f"{q.id}p" for q in answerable]
+    assert [d.id for d in held_d] == [f"{d.id}p" for d in decline]
+    for orig, para in zip(answerable, held_a):
+        assert (para.sql, para.ordered, para.tolerance, para.level) == (orig.sql, orig.ordered, orig.tolerance, orig.level)
+        assert para.question != orig.question
+    assert all(p.kind == o.kind for p, o in zip(held_d, decline))
+
+
+@pytest.mark.parametrize("bad, message", [
+    ({"answerable": [{"of": "q99", "question": "x?"}]}, "not an answerable"),
+    ({"answerable": [{"of": "d1", "question": "x?"}]}, "not an answerable"),
+    ({"answerable": [{"of": "q1", "question": "a?"}, {"of": "q1", "question": "b?"}]}, "twice"),
+    ({"answerable": [{"of": "q1", "question": "how many? "}]}, "repeats"),
+    ({"answerable": [{"of": "q1", "question": "x?", "sql": "SELECT 2"}]}, "exactly"),
+])
+def test_heldout_rejects_bad_entries(tmp_path, bad, message):
+    originals = write(tmp_path, {"answerable": [GOOD],
+                                 "must_decline": [{"id": "d1", "question": "margin?", "kind": "no_data"}]})
+    heldout = tmp_path / "h.yml"
+    heldout.write_text(yaml.safe_dump(bad))
+    with pytest.raises(ValueError, match=message):
+        load_heldout(heldout, originals)

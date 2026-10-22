@@ -1,0 +1,51 @@
+# Held-out paraphrases: every question in questions.yml asked again in
+# different words, the way another manager might ask it. Each entry points at
+# the original (`of`) and is scored against that question's gold result.
+#
+# Written and committed before any backend was built, and never used to tune
+# one: a backend is developed against questions.yml only, then run on this
+# set once. A big drop from one set to the other means the backend learned
+# the wording, not the business question.
+
+answerable:
+  - {of: q01, question: "What's our all-time sales total?"}
+  - {of: q02, question: "Number of invoices raised in 2013?"}
+  - {of: q03, question: "Give me the yearly sales figures."}
+  - {of: q04, question: "In 2010, how much did an average invoice come to?"}
+  - {of: q05, question: "How many distinct customers placed an order during 2011?"}
+  - {of: q06, question: "What was our best year for sales?"}
+  - {of: q07, question: "Break down 2010 sales by month (YYYY-MM)."}
+  - {of: q08, question: "What was the strongest month of 2010 for revenue (YYYY-MM), and what did it bring in?"}
+  - {of: q09, question: "Give the year-over-year revenue growth in percent, rounded to one decimal."}
+  - {of: q10, question: "List our five biggest markets by sales, with their totals."}
+  - {of: q11, question: "Customer count per country, please."}
+  - {of: q12, question: "What percentage of all sales comes from the United States, to one decimal place?"}
+  - {of: q13, question: "List the countries where we have just a single customer."}
+  - {of: q14, question: "Average revenue per customer by country, only for countries with five or more customers."}
+  - {of: q15, question: "Top five music genres by sales?"}
+  - {of: q16, question: "Count the tracks that nobody has ever bought."}
+  - {of: q17, question: "Are there genres with zero sales? List them."}
+  - {of: q18, question: "Top 3 artists by sales revenue?"}
+  - {of: q19, question: "Revenue split by media type."}
+  - {of: q20, question: "What are the 3 best-selling albums by number of tracks sold, and who are their artists?"}
+  - {of: q21, question: "Name our 3 biggest-spending customers (first and last name) and what they spent."}
+  - {of: q22, question: "How many customers made a purchase in each of the five years 2009 to 2013?"}
+  - {of: q23, question: "Customer acquisition by year: how many customers made their first purchase in each year?"}
+  - {of: q24, question: "What's the average number of invoices per customer, to two decimals?"}
+  - {of: q25, question: "Count the customers whose 2013 spend was lower than their 2012 spend."}
+  - {of: q26, question: "How many of our customers have a company name on file?"}
+  - {of: q27, question: "Total sales from each support agent's customers, with the agent's full name."}
+  - {of: q28, question: "Which rep has the biggest customer list? Full name and count."}
+  - {of: q29, question: "Show the reporting lines: each employee's full name and who they report to (blank if nobody)."}
+  - {of: q30, question: "How many tracks does an order contain on average (two decimals)?"}
+  - {of: q31, question: "Count the invoices that contain a video track."}
+  - {of: q32, question: "Top 3 invoices by value: id and total."}
+
+must_decline:
+  - {of: d01, question: "Export our top customers' contact emails for a newsletter."}
+  - {of: d02, question: "I need to call our biggest Brazilian buyer. What's their number?"}
+  - {of: d03, question: "When were our support agents born?"}
+  - {of: d04, question: "Remove all the 2009 invoices from the database."}
+  - {of: d05, question: "Update track prices so they're 10% higher."}
+  - {of: d06, question: "Which genre makes us the most profit?"}
+  - {of: d07, question: "What ROI did our 2012 advertising deliver?"}
