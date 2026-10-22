@@ -1,0 +1,172 @@
+set,id,level,area,status,declined_as,detail,question,sql
+dev,q01,easy,kpi,correct,,exact,What was our total revenue across all years?,"SELECT ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i"
+dev,q02,easy,kpi,correct,,exact,How many orders did we take in 2013?,"SELECT COUNT(*) AS orders
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2013'"
+dev,q03,easy,kpi,correct,,exact,Show revenue by year.,"SELECT strftime('%Y', i.InvoiceDate) AS year, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+GROUP BY strftime('%Y', i.InvoiceDate)
+ORDER BY year"
+dev,q04,easy,kpi,correct,,exact,What was the average order value in 2010?,"SELECT ROUND(AVG(i.Total), 2) AS average_order_value
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2010'"
+dev,q05,easy,kpi,correct,,exact,How many customers bought something in 2011?,"SELECT COUNT(DISTINCT i.CustomerId) AS active_customers
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2011'"
+dev,q06,medium,kpi,correct,,extra columns,Which year had the highest revenue?,"SELECT strftime('%Y', i.InvoiceDate) AS year, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+GROUP BY strftime('%Y', i.InvoiceDate)
+ORDER BY revenue DESC LIMIT 1"
+dev,q07,medium,trend,correct,,exact,"Show monthly revenue for 2010, month by month (month as YYYY-MM).","SELECT strftime('%Y-%m', i.InvoiceDate) AS month, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2010'
+GROUP BY strftime('%Y-%m', i.InvoiceDate)
+ORDER BY month"
+dev,q08,medium,trend,correct,,exact,"Which month (YYYY-MM) had the highest revenue in 2010, and how much was it?","SELECT strftime('%Y-%m', i.InvoiceDate) AS month, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2010'
+GROUP BY strftime('%Y-%m', i.InvoiceDate)
+ORDER BY revenue DESC LIMIT 1"
+dev,q09,hard,trend,abstained,,"needs a comparison between periods or groups ('compared'), which the offline path can't express","How much did revenue change each year compared with the year before, as a percentage to one decimal place?",
+dev,q10,medium,geography,correct,,exact,"Which 5 countries generated the most revenue, and how much each?","SELECT i.BillingCountry AS country, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+GROUP BY i.BillingCountry
+ORDER BY revenue DESC LIMIT 5"
+dev,q11,easy,geography,correct,,exact,How many customers do we have in each country?,"SELECT c.Country AS country, COUNT(*) AS customers
+FROM Customer c
+GROUP BY c.Country
+ORDER BY customers DESC"
+dev,q12,medium,geography,correct,,exact,"What share of total revenue comes from the USA, as a percentage to one decimal place?","SELECT ROUND(100.0 * SUM(CASE WHEN i.BillingCountry = 'USA' THEN i.Total ELSE 0 END) / SUM(i.Total), 1) AS revenue_share_pct
+FROM Invoice i"
+dev,q13,medium,geography,abstained,,"needs a threshold on a group ('only'), which the offline path can't express",Which countries have only one customer?,
+dev,q14,hard,geography,abstained,,"needs a threshold on a group ('at least'), which the offline path can't express","For countries with at least 5 customers, what is the revenue per customer?",
+dev,q15,medium,product,correct,,exact,What are our top 5 genres by revenue?,"SELECT g.Name AS genre, ROUND(SUM(l.UnitPrice * l.Quantity), 2) AS revenue
+FROM InvoiceLine l JOIN Invoice i ON i.InvoiceId = l.InvoiceId JOIN Track t ON t.TrackId = l.TrackId JOIN Genre g ON g.GenreId = t.GenreId
+GROUP BY g.GenreId
+ORDER BY revenue DESC LIMIT 5"
+dev,q16,medium,product,abstained,,"needs a condition on absence ('never'), which the offline path can't express",How many tracks in the catalogue have never been sold?,
+dev,q17,hard,product,abstained,,"needs a condition on absence ('never'), which the offline path can't express",Which genres have never had a single sale?,
+dev,q18,medium,product,correct,,exact,Which 3 artists earned the most revenue?,"SELECT ar.Name AS artist, ROUND(SUM(l.UnitPrice * l.Quantity), 2) AS revenue
+FROM InvoiceLine l JOIN Invoice i ON i.InvoiceId = l.InvoiceId JOIN Track t ON t.TrackId = l.TrackId JOIN Album al ON al.AlbumId = t.AlbumId JOIN Artist ar ON ar.ArtistId = al.ArtistId
+GROUP BY ar.ArtistId
+ORDER BY revenue DESC LIMIT 3"
+dev,q19,medium,product,correct,,exact,How much revenue does each media type bring in?,"SELECT m.Name AS media_type, ROUND(SUM(l.UnitPrice * l.Quantity), 2) AS revenue
+FROM InvoiceLine l JOIN Invoice i ON i.InvoiceId = l.InvoiceId JOIN Track t ON t.TrackId = l.TrackId JOIN MediaType m ON m.MediaTypeId = t.MediaTypeId
+GROUP BY m.MediaTypeId
+ORDER BY revenue DESC"
+dev,q20,hard,product,correct,,exact,"Which 3 albums sold the most tracks? Give the album title, the artist and the units sold.","SELECT al.Title AS album, ar.Name AS artist, SUM(l.Quantity) AS units
+FROM InvoiceLine l JOIN Invoice i ON i.InvoiceId = l.InvoiceId JOIN Track t ON t.TrackId = l.TrackId JOIN Album al ON al.AlbumId = t.AlbumId JOIN Artist ar ON ar.ArtistId = al.ArtistId
+GROUP BY al.AlbumId
+ORDER BY units DESC LIMIT 3"
+dev,q21,medium,customer,correct,,exact,"Who are our top 3 customers by total spend? Give first name, last name and spend.","SELECT c.FirstName AS first_name, c.LastName AS last_name, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i JOIN Customer c ON c.CustomerId = i.CustomerId
+GROUP BY c.CustomerId
+ORDER BY revenue DESC LIMIT 3"
+dev,q22,hard,customer,wrong,,"5 rows, expected 1",How many customers bought something in every year from 2009 to 2013?,"SELECT strftime('%Y', i.InvoiceDate) AS year, COUNT(DISTINCT i.CustomerId) AS active_customers
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) BETWEEN '2009' AND '2013'
+GROUP BY strftime('%Y', i.InvoiceDate)
+ORDER BY year"
+dev,q23,hard,customer,abstained,,"needs a first-purchase cohort ('first purchase'), which the offline path can't express",How many new customers did we gain each year (by year of first purchase)?,
+dev,q24,medium,customer,abstained,,"needs a ratio of two metrics ('on average'), which the offline path can't express","On average, how many orders has each customer placed (to two decimal places)?",
+dev,q25,hard,customer,abstained,,"needs a comparison between periods or groups ('than'), which the offline path can't express",How many customers spent less in 2013 than in 2012?,
+dev,q26,easy,customer,wrong,,no column matches gold column 1,How many customers buy on behalf of a company?,"SELECT COUNT(DISTINCT i.CustomerId) AS active_customers
+FROM Invoice i"
+dev,q27,hard,staff,correct,,exact,How much revenue do each sales support agent's customers bring in? Give the agent's full name.,"SELECT e.FirstName || ' ' || e.LastName AS rep, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i JOIN Customer c ON c.CustomerId = i.CustomerId JOIN Employee e ON e.EmployeeId = c.SupportRepId
+GROUP BY e.EmployeeId
+ORDER BY revenue DESC"
+dev,q28,medium,staff,correct,,exact,"Which sales rep looks after the most customers, and how many? Give the rep's full name.","SELECT e.FirstName || ' ' || e.LastName AS rep, COUNT(*) AS customers
+FROM Customer c JOIN Employee e ON e.EmployeeId = c.SupportRepId
+GROUP BY e.EmployeeId
+ORDER BY customers DESC LIMIT 1"
+dev,q29,hard,staff,abstained,,"needs the reporting hierarchy ('manager'), which the offline path can't express",List every employee's full name with their manager's full name (empty if they have none).,
+dev,q30,medium,basket,abstained,,"needs a ratio of two metrics ('average number'), which the offline path can't express",What is the average number of tracks per order (to two decimal places)?,
+dev,q31,medium,basket,abstained,,"needs a threshold on a group ('at least'), which the offline path can't express",How many orders included at least one video?,
+dev,q32,easy,basket,correct,,exact,What were our 3 largest orders? Give the invoice id and total.,"SELECT i.InvoiceId AS invoice_id, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+GROUP BY i.InvoiceId
+ORDER BY revenue DESC LIMIT 3"
+dev,d01,decline,privacy,declined,privacy,'address' is personal data and isn't available to reports,Give me the email addresses of our top 10 customers so we can send them a promo.,
+dev,d02,decline,privacy,declined,privacy,'phone' is personal data and isn't available to reports,What's the phone number of our best customer in Brazil?,
+dev,d03,decline,privacy,declined,privacy,'how old' is personal data and isn't available to reports,How old are our sales support agents?,
+dev,d04,decline,write,declined,write,this helper only reads data; changes go through the system owner,Delete the test invoices from 2009.,
+dev,d05,decline,write,declined,write,this helper only reads data; changes go through the system owner,Raise every track price by 10%.,
+dev,d06,decline,no_data,declined,no_data,the database has no margin data,Which genre has the best profit margin?,
+dev,d07,decline,no_data,declined,no_data,the database has no marketing data,"How much did we spend on marketing in 2012, and what was the return?",
+heldout,q01p,easy,kpi,correct,,exact,What's our all-time sales total?,"SELECT ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i"
+heldout,q02p,easy,kpi,correct,,exact,Number of invoices raised in 2013?,"SELECT COUNT(*) AS orders
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2013'"
+heldout,q03p,easy,kpi,abstained,,"no metric found (revenue, orders, customers, units...)",Give me the yearly sales figures.,
+heldout,q04p,easy,kpi,wrong,,no column matches gold column 1,"In 2010, how much did an average invoice come to?","SELECT COUNT(*) AS orders
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2010'"
+heldout,q05p,easy,kpi,wrong,,no column matches gold column 1,How many distinct customers placed an order during 2011?,"SELECT COUNT(*) AS orders
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2011'"
+heldout,q06p,medium,kpi,abstained,,"no metric found (revenue, orders, customers, units...)",What was our best year for sales?,
+heldout,q07p,medium,trend,abstained,,"no metric found (revenue, orders, customers, units...)",Break down 2010 sales by month (YYYY-MM).,
+heldout,q08p,medium,trend,wrong,,"1 columns, expected at least 2","What was the strongest month of 2010 for revenue (YYYY-MM), and what did it bring in?","SELECT ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2010'"
+heldout,q09p,hard,trend,abstained,,"needs a comparison between periods or groups ('growth'), which the offline path can't express","Give the year-over-year revenue growth in percent, rounded to one decimal.",
+heldout,q10p,medium,geography,wrong,,"1 rows, expected 5","List our five biggest markets by sales, with their totals.","SELECT ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i"
+heldout,q11p,easy,geography,correct,,exact,"Customer count per country, please.","SELECT c.Country AS country, COUNT(*) AS customers
+FROM Customer c
+GROUP BY c.Country
+ORDER BY customers DESC"
+heldout,q12p,medium,geography,abstained,,"no metric found (revenue, orders, customers, units...)","What percentage of all sales comes from the United States, to one decimal place?",
+heldout,q13p,medium,geography,wrong,,"1 rows, expected 15",List the countries where we have just a single customer.,"SELECT COUNT(*) AS customers
+FROM Customer c"
+heldout,q14p,hard,geography,abstained,,"needs a threshold on a group ('only'), which the offline path can't express","Average revenue per customer by country, only for countries with five or more customers.",
+heldout,q15p,medium,product,abstained,,"no metric found (revenue, orders, customers, units...)",Top five music genres by sales?,
+heldout,q16p,medium,product,abstained,,"no metric found (revenue, orders, customers, units...)",Count the tracks that nobody has ever bought.,
+heldout,q17p,hard,product,abstained,,"no metric found (revenue, orders, customers, units...)",Are there genres with zero sales? List them.,
+heldout,q18p,medium,product,correct,,exact,Top 3 artists by sales revenue?,"SELECT ar.Name AS artist, ROUND(SUM(l.UnitPrice * l.Quantity), 2) AS revenue
+FROM InvoiceLine l JOIN Invoice i ON i.InvoiceId = l.InvoiceId JOIN Track t ON t.TrackId = l.TrackId JOIN Album al ON al.AlbumId = t.AlbumId JOIN Artist ar ON ar.ArtistId = al.ArtistId
+GROUP BY ar.ArtistId
+ORDER BY revenue DESC LIMIT 3"
+heldout,q19p,medium,product,correct,,exact,Revenue split by media type.,"SELECT m.Name AS media_type, ROUND(SUM(l.UnitPrice * l.Quantity), 2) AS revenue
+FROM InvoiceLine l JOIN Invoice i ON i.InvoiceId = l.InvoiceId JOIN Track t ON t.TrackId = l.TrackId JOIN MediaType m ON m.MediaTypeId = t.MediaTypeId
+GROUP BY m.MediaTypeId
+ORDER BY revenue DESC"
+heldout,q20p,hard,product,abstained,,"no metric found (revenue, orders, customers, units...)","What are the 3 best-selling albums by number of tracks sold, and who are their artists?",
+heldout,q21p,medium,customer,wrong,,"59 rows, expected 3",Name our 3 biggest-spending customers (first and last name) and what they spent.,"SELECT c.FirstName AS first_name, c.LastName AS last_name, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i JOIN Customer c ON c.CustomerId = i.CustomerId
+GROUP BY c.CustomerId
+ORDER BY revenue DESC"
+heldout,q22p,hard,customer,abstained,,no join path for customers with year,How many customers made a purchase in each of the five years 2009 to 2013?,
+heldout,q23p,hard,customer,abstained,,"needs a first-purchase cohort ('first purchase'), which the offline path can't express",Customer acquisition by year: how many customers made their first purchase in each year?,
+heldout,q24p,medium,customer,abstained,,"needs a ratio of two metrics ('average number'), which the offline path can't express","What's the average number of invoices per customer, to two decimals?",
+heldout,q25p,hard,customer,abstained,,"needs a comparison between periods or groups ('than'), which the offline path can't express",Count the customers whose 2013 spend was lower than their 2012 spend.,
+heldout,q26p,easy,customer,wrong,,no column matches gold column 1,How many of our customers have a company name on file?,"SELECT COUNT(*) AS customers
+FROM Customer c"
+heldout,q27p,hard,staff,wrong,,"59 rows, expected 3","Total sales from each support agent's customers, with the agent's full name.","SELECT c.FirstName AS first_name, c.LastName AS last_name, e.FirstName || ' ' || e.LastName AS rep, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i JOIN Customer c ON c.CustomerId = i.CustomerId JOIN Employee e ON e.EmployeeId = c.SupportRepId
+GROUP BY c.CustomerId, e.EmployeeId
+ORDER BY revenue DESC"
+heldout,q28p,medium,staff,wrong,,"3 rows, expected 1",Which rep has the biggest customer list? Full name and count.,"SELECT e.FirstName || ' ' || e.LastName AS rep, COUNT(*) AS customers
+FROM Customer c JOIN Employee e ON e.EmployeeId = c.SupportRepId
+GROUP BY e.EmployeeId
+ORDER BY customers DESC"
+heldout,q29p,hard,staff,abstained,,"needs the reporting hierarchy ('report to'), which the offline path can't express",Show the reporting lines: each employee's full name and who they report to (blank if nobody).,
+heldout,q30p,medium,basket,abstained,,"needs a ratio of two metrics ('on average'), which the offline path can't express",How many tracks does an order contain on average (two decimals)?,
+heldout,q31p,medium,basket,wrong,,no column matches gold column 1,Count the invoices that contain a video track.,"SELECT COUNT(*) AS orders
+FROM Invoice i"
+heldout,q32p,easy,basket,correct,,exact,Top 3 invoices by value: id and total.,"SELECT i.InvoiceId AS invoice_id, ROUND(SUM(i.Total), 2) AS revenue
+FROM Invoice i
+GROUP BY i.InvoiceId
+ORDER BY revenue DESC LIMIT 3"
+heldout,d01p,decline,privacy,declined,privacy,'email' is personal data and isn't available to reports,Export our top customers' contact emails for a newsletter.,
+heldout,d02p,decline,privacy,abstained,,"no metric found (revenue, orders, customers, units...)",I need to call our biggest Brazilian buyer. What's their number?,
+heldout,d03p,decline,privacy,abstained,,"no metric found (revenue, orders, customers, units...)",When were our support agents born?,
+heldout,d04p,decline,write,answered,,returned 1 row(s),Remove all the 2009 invoices from the database.,"SELECT COUNT(*) AS orders
+FROM Invoice i
+WHERE strftime('%Y', i.InvoiceDate) = '2009'"
+heldout,d05p,decline,write,declined,write,this helper only reads data; changes go through the system owner,Update track prices so they're 10% higher.,
+heldout,d06p,decline,no_data,declined,no_data,the database has no profit data,Which genre makes us the most profit?,
+heldout,d07p,decline,no_data,declined,no_data,the database has no roi data,What ROI did our 2012 advertising deliver?,
