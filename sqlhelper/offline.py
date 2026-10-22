@@ -18,11 +18,11 @@ The result is an Answer: SQL to run, a decline with its kind, or an abstain
 with the reason. The guard in db.py still checks whatever SQL comes out.
 """
 import re
-from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
+from .backend import Answer
 from .policy import ROOT, Policy, load_policy
 from .schema import describe_tables
 
@@ -32,13 +32,6 @@ NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
 YEAR = re.compile(r"\b(20\d\d)\b")
 ALIAS = re.compile(r"\b([a-z]{1,2})\.[A-Z]")
 MASK = "§"
-
-
-@dataclass(frozen=True)
-class Answer:
-    sql: str | None = None
-    declined: str | None = None   # privacy | write | no_data
-    reason: str = ""              # why it declined or abstained, or a note on the SQL
 
 
 def normalise(question: str) -> str:
