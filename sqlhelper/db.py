@@ -118,19 +118,19 @@ def run_query(sql: str, policy: Policy | None = None, db_path: Path = DB_PATH) -
     try:
         cur = con.execute(body)
         rows = cur.fetchmany(policy.max_rows + 1)
+        columns = [d[0] for d in cur.description or []]
+    except sqlite3.ProgrammingError as e:  # a DatabaseError subclass, so it goes first
+        if "one statement" in str(e):
+            raise QueryRejected("only one statement per query") from e
+        raise QueryRejected(f"SQL error: {e}") from e
     except sqlite3.DatabaseError as e:
         if denied:
             raise QueryRejected(denied[0]) from e
         if "interrupted" in str(e):
             raise QueryRejected(f"query took longer than {policy.timeout_seconds:g} s") from e
         raise QueryRejected(f"SQL error: {e}") from e
-    except sqlite3.ProgrammingError as e:
-        if "one statement" in str(e):
-            raise QueryRejected("only one statement per query") from e
-        raise QueryRejected(f"SQL error: {e}") from e
     finally:
         elapsed = (time.perf_counter() - start) * 1000
-    columns = [d[0] for d in cur.description or []]
-    con.close()
+        con.close()
     truncated = len(rows) > policy.max_rows
     return QueryResult(columns, rows[: policy.max_rows], truncated, elapsed, body)

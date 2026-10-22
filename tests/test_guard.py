@@ -35,7 +35,7 @@ def test_allowed_queries_run(sql, fixture_db, policy):
     ("PRAGMA table_info(Customer)", "only SELECT"),
     ("ATTACH DATABASE '/tmp/x.db' AS x", "only SELECT"),
     ("VACUUM INTO '/tmp/copy.db'", "only SELECT"),
-    ("SELECT 1; DROP TABLE Customer", "one statement"),
+    ("SELECT 1; DROP TABLE Customer", "only one statement per query"),
     ("SELECT Value FROM Secret", "table Secret"),
     ("SELECT name FROM sqlite_master", "table sqlite_master"),
     ("SELECT Email FROM Customer", "Customer.Email"),
