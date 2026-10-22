@@ -33,14 +33,14 @@ metrics:
     expr: {invoice: "AVG(i.Total)"}
     round: 2
   units:
-    words: [units sold, unit, "sold (?:the )?(?:most )?tracks"]   # business_notes; dev q20
+    words: [units sold, unit, "sold (?:the )?(?:most )?tracks"]   # business_notes; dev q20 ("unit" from units sold)
     expr: {line: "SUM(l.Quantity)"}
   active_customers:
     # "customers" near a buying word; business_notes defines active customers
     words: ["customers? (?:\\w+ ){0,2}(?:bought|buy|active)", active customer]   # dev q05, q22
     expr: {invoice: "COUNT(DISTINCT i.CustomerId)", line: "COUNT(DISTINCT i.CustomerId)"}
   revenue:
-    words: [revenue, total, spend, spent, bring in, earned, generated]   # business_notes; dev q10, q18, q19, q21, q25, q27
+    words: [revenue, total, spend, spent, bring in, earned, generated]   # business_notes; schema card (Invoice.Total); dev q10, q18, q19, q21, q25, q27
     expr: {invoice: "SUM(i.Total)", line: "SUM(l.UnitPrice * l.Quantity)"}
     round: 2
   orders:
@@ -75,23 +75,23 @@ dimensions:
     select: [[i.BillingCountry, country]]
     select_by_grain: {customer: [[c.Country, country]]}
   genre:
-    words: [genre]
+    words: [genre]                                  # schema card
     select: [[g.Name, genre]]
     group: g.GenreId
   album:
-    words: [album]                                  # an album title isn't unique, so its artist comes with it
+    words: [album]                                  # schema card; an album title isn't unique, so its artist comes with it
     select: [[al.Title, album], [ar.Name, artist]]
     group: al.AlbumId
   artist:
-    words: [artist]
+    words: [artist]                                 # schema card
     select: [[ar.Name, artist]]
     group: ar.ArtistId
   customer:
-    words: [customer]
+    words: [customer]                               # schema card
     select: [[c.FirstName, first_name], [c.LastName, last_name]]
     group: c.CustomerId
   order:
-    words: [order, invoice]
+    words: [order, invoice]                         # business_notes; schema card
     select: [[i.InvoiceId, invoice_id]]
     group: i.InvoiceId
     default_metric: revenue                         # "3 largest orders" means by value
@@ -114,7 +114,7 @@ filter_values:
 decline:
   # Personal data: the restricted column names in policy.yml (split into words)
   # are added in code; these are extra ways of asking for them.
-  privacy: [how old, age]                           # dev d03
+  privacy: [how old, age]                           # dev d03 ("age" from how old)
   # A request that starts with a write verb: SQL's own write verbs plus dev wording.
   write_verbs: [delete, update, insert, drop, alter, create, replace, raise]   # dev d04, d05
   # business_notes: no cost, margin, marketing spend, stock or returns data.
