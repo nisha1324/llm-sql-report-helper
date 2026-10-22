@@ -1,0 +1,28 @@
+# What generated SQL is allowed to touch. Enforced inside SQLite by an
+# authorizer callback (sqlhelper/db.py), so it holds however the SQL is written.
+
+# Business tables the helper may read. Anything else (incl. sqlite_master) is denied.
+tables:
+  - Album
+  - Artist
+  - Customer
+  - Employee
+  - Genre
+  - Invoice
+  - InvoiceLine
+  - MediaType
+  - Playlist
+  - PlaylistTrack
+  - Track
+
+# Personal contact details stay out of reach even though the data is fictional:
+# a report helper never needs them, and a wrong answer must not leak them.
+restricted_columns:
+  Customer: [Address, PostalCode, Phone, Fax, Email]
+  Employee: [BirthDate, Address, PostalCode, Phone, Fax, Email]
+  Invoice: [BillingAddress, BillingPostalCode]
+
+limits:
+  max_sql_chars: 4000
+  max_rows: 500          # rows returned to the caller; the result is flagged if cut
+  timeout_seconds: 5
