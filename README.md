@@ -1,6 +1,6 @@
 # LLM SQL report helper
 
-**Status: in progress.** Part 1 (guard rails, schema card, evaluation set) and Part 2 (an offline backend and the scored evaluation) are done. The Claude backend and the report writer come next ([roadmap](#roadmap)).
+**Status: in progress.** Part 1 (guard rails, schema card, evaluation set) and Part 2 (an offline backend and the scored evaluation) are done. Part 3, the Claude backend, is built and tested against a mocked API but not scored yet, because no API key is set up. The report writer comes next ([roadmap](#roadmap)).
 
 Ask a business question in plain English, get back the SQL, the result and a short report. The point of this project is the part that makes that **safe and measurable**: a guard that the database itself enforces, a shared definition of each metric, and a set of business questions with known answers to score any model against.
 
@@ -118,6 +118,22 @@ The last one is a real bug: dimensions are matched longest word first rather tha
 
 **The guard held when the decline step missed.** "What's their number?" (phone) and "When were our support agents born?" got no answer, rather than a decline with a reason. "*Remove* all the 2009 invoices" isn't on the write-verb list, so the backend ran a read-only count. The database refuses writes, so nothing changed. But the user got a number instead of "I can't change data".
 
+### 5. The Claude backend (Part 3, built, not scored yet)
+
+[`sqlhelper/claude.py`](sqlhelper/claude.py), settings in [`config/claude.yml`](config/claude.yml). It plugs into the same `Backend` interface, so the harness scores it exactly like the offline path: same guard, same comparator, same two question sets.
+
+- **Prompt:** short instructions plus the full schema card, 6,339 characters in all. The model gets the same metric definitions, gotchas and "not available (personal data)" list as a human analyst would. The decline rules are written as definitions ("answering needs a column listed as not available"), not as word lists, so the prompt borrows no wording from either question set.
+- **Structured answer:** the API holds every reply to a JSON schema (`output_config.format`): an action (`sql`, `decline` or `abstain`), the SQL, a decline kind (privacy, write, no data) and a reason. The backend still refuses contradictory replies, such as an `sql` action with no SQL or a decline without a kind, and a reply cut off at `max_tokens`. The harness counts those as errors, not answers.
+- **One retry with the guard's reason:** if the guard rejects the SQL ("column Customer.Email is restricted (personal data)", "no such column: ..."), the model sees that reason and gets one more try. It can fix the query or decline. A second rejection goes to the harness as `rejected`, so retries can't hide a model that keeps writing bad SQL. The run report counts calls, retries and how many questions a retry fixed.
+- **Model:** `claude-haiku-4-5`, the small, cheap tier, since each answer is one short query. The SDK version used here (2.1) no longer takes a `temperature` setting, so answers can vary between runs. The report gives the model and the date, and calls each score "one run".
+- **No key, no call:** `python -m scripts.evaluate --backend claude` stops before sending anything unless `ANTHROPIC_API_KEY` is set in a gitignored `.env` (see [`.env.example`](.env.example)).
+
+**How it's tested without a key** ([`tests/test_claude.py`](tests/test_claude.py), 14 tests): a fake client plays back scripted replies and records each request. The tests check the request (model, system prompt, JSON schema, no sampling settings), each kind of reply, the retry message carrying the guard's exact reason, retries stopping after one, a refusal becoming an abstain, and a cut-off reply becoming an error. One test runs a scripted backend through the harness and gets correct, wrong, declined and rejected outcomes. Another runs the **real `anthropic` SDK** with the network swapped for a stub, to prove the SDK accepts the request and the backend reads its response objects. Three mutation checks (dropping the reason from the retry message, never counting down the retries, ignoring a refusal) are all caught.
+
+**What a scored run would cost:** both sets are 78 questions. At about 1,600 input tokens a call (estimated from the prompt size, not measured) and Haiku 4.5's list price of $1 / $5 per million input / output tokens, that comes to roughly **$0.20 a run**. The prompt is below Haiku 4.5's 4,096-token minimum for prompt caching, so caching wouldn't make it cheaper. The real token counts and cost will be in the run report.
+
+**The bar it has to clear** on the held-out set (the offline path's scores): 19% accuracy, 38% right-when-answered and 4 of 7 must-decline cases declined.
+
 ## So what for the business (so far)
 
 - **Safety can't depend on the model behaving.** The privacy and write rules are enforced by the database engine, so a confused or manipulated model gets a clear refusal, not the data.
@@ -125,6 +141,7 @@ The last one is a real bug: dimensions are matched longest word first rather tha
 - **Metric definitions are a governance decision, not a prompt detail.** Writing them once in a reviewed file means a generated "revenue" uses the same definition as finance.
 - **Test on wording the tool hasn't seen, or the score flatters it.** The same rules scored 59% on the questions they were built from and 19% on the same questions reworded. A demo on the builder's own questions would have overstated it three times over.
 - **Track "right when it answered", not just accuracy.** Abstaining costs a manager a minute; a wrong number can end up in a board pack. The offline path's trustworthiness fell from 90% to 38% on new wording, and that's the figure that decides whether it can go in front of users.
+- **Build the LLM path to be scored, not demoed.** It goes through the same guard and is scored on the same questions as the offline path, and every call is counted and costed. A model or prompt change then becomes a measured decision: roughly $0.20 buys a full score on both sets.
 - **A keyword layer suits fixed menus, not free text.** With pick-lists for metric, dimension and filter, the same semantic layer would be dependable. For free-text questions it isn't, which is the case for an LLM backend. That backend has to beat 19% accuracy and 38% right-when-answered on the held-out set, and decline all 7 must-decline cases, before it's worth its cost.
 
 ## How to run
@@ -136,7 +153,11 @@ python scripts/download_data.py          # 1.07 MB, SHA-256 checked
 python -m scripts.build_schema_card      # docs/SCHEMA_CARD.md
 python -m scripts.check_gold             # results/GOLD_ANSWERS.md, exits 1 on any failed check
 python -m scripts.evaluate               # offline backend on both sets: results/EVAL_offline.md, CSV, chart (~2 s)
-pytest                                   # 109 tests; the guard tests use a small fixture database
+pytest                                   # 126 tests; the guard tests use a small fixture database, the Claude tests a fake client
+
+# Optional, needs an Anthropic API key (about $0.20 a run, see Part 3):
+cp .env.example .env                     # then put your key in .env (gitignored)
+python -m scripts.evaluate --backend claude   # results/EVAL_claude.md, CSV, chart
 ```
 
 ## Project structure
@@ -151,6 +172,8 @@ sqlhelper/compare.py       result comparator (execution accuracy)
 sqlhelper/questions.py     evaluation set and held-out loaders, with validation
 sqlhelper/backend.py       the Answer every backend returns
 sqlhelper/offline.py       offline backend (semantic layer: decline, abstain or write SQL)
+sqlhelper/claude.py        Claude backend (schema card prompt, JSON answer, one retry on a guard rejection)
+config/claude.yml          model, token limit, retries and list price for the Claude backend
 sqlhelper/evaluate.py      evaluation harness (outcomes, accuracy, right when it answered)
 eval/questions.yml         32 answerable + 7 must-decline questions with gold SQL (development set)
 eval/heldout.yml           the same 39 questions reworded (held-out set)
@@ -164,5 +187,6 @@ results/EVAL_offline.md    offline backend scores, failures and abstain reasons
 
 - [x] Part 1: guard, schema card, evaluation set and comparator
 - [x] Part 2: an offline path (no API key needed), a held-out paraphrase set and the evaluation harness, with accuracy by level and area plus a failure analysis
-- [ ] Part 3: Claude backend (prompted with the schema card; one retry using the guard's reason) and the must-decline cases. It runs only if `ANTHROPIC_API_KEY` is set in a gitignored `.env`; otherwise it is tested with a mock
+- [x] Part 3: Claude backend (prompted with the schema card, a JSON answer checked against a schema, one retry using the guard's reason), tested with a fake client and the real SDK against a stubbed network
+- [ ] Part 3b: score the Claude backend on both sets. Needs `ANTHROPIC_API_KEY` in a gitignored `.env` (about $0.20 a run)
 - [ ] Part 4: report writer (every number in the text must come from the result), then findings and recommendations
