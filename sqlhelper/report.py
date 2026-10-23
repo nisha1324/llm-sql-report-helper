@@ -66,8 +66,13 @@ def _is_num(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+def number_tokens(text: str):
+    """Number matches in `text`, with dates blanked out first. Spans refer to `text`."""
+    return NUMBER_TOKEN.finditer(DATE_TOKEN.sub(lambda m: " " * len(m.group()), text))
+
+
 def _numbers_in(text: str) -> list[float]:
-    return [float(m.group(2).replace(",", "")) for m in NUMBER_TOKEN.finditer(DATE_TOKEN.sub(" ", text))]
+    return [float(m.group(2).replace(",", "")) for m in number_tokens(text)]
 
 
 def _pairs(values: list[float]) -> list[tuple[float, float]]:
@@ -136,7 +141,7 @@ def check_numbers(text: str, result: QueryResult, question: str = "") -> NumberC
     numbers = []
     for d in DATE_TOKEN.findall(text):
         numbers.append(Number(d, 0.0, 0, False, False, "date in the result" if d in dates else None))
-    for m in NUMBER_TOKEN.finditer(DATE_TOKEN.sub(" ", text)):
+    for m in number_tokens(text):
         sign, digits, percent, suffix = m.groups()
         value = float(digits.replace(",", ""))
         decimals = len(digits.split(".")[1]) if "." in digits else 0
