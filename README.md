@@ -1,6 +1,6 @@
 # LLM SQL report helper
 
-**Status: in progress.** Part 1 (guard rails, schema card, evaluation set) and Part 2 (an offline backend and the scored evaluation) are done. Part 3, the Claude backend, is built and tested against a mocked API but not scored yet, because no API key is set up. The report writer comes next ([roadmap](#roadmap)).
+**Status: in progress.** Parts 1–4 are built: guard rails, schema card and evaluation set; an offline backend and the scored evaluation; a Claude backend (tested against a mocked API, not scored yet, because no API key is set up); and a report writer whose numbers are checked against the result. The final write-up comes next ([roadmap](#roadmap)).
 
 Ask a business question in plain English, get back the SQL, the result and a short report. The point of this project is the part that makes that **safe and measurable**: a guard that the database itself enforces, a shared definition of each metric, and a set of business questions with known answers to score any model against.
 
@@ -134,6 +134,45 @@ The last one is a real bug: dimensions are matched longest word first rather tha
 
 **The bar it has to clear** on the held-out set (the offline path's scores): 19% accuracy, 38% right-when-answered and 4 of 7 must-decline cases declined.
 
+### 6. The report writer (Part 4)
+
+A manager wants a sentence, not a table. But a summary is a second place for a wrong number to appear: the SQL can be right and the text still misquote it. So the text gets its own check.
+
+**The number check** ([`sqlhelper/report.py`](sqlhelper/report.py)) reads every number in a summary and traces it to the result. A number may be a cell (or a number inside a label, such as a year), the row count, a column's total, average or count of values, a difference or % change between two rows (neighbours, first and last, highest and lowest), a row's share of the column total, or a number from the question ("top 3"). Rounding is allowed if it's correct for the decimals shown ("$2,329" for 2,328.60, but not "$2,330"). A written sign must be right ("+2.5%" for a fall is refused). Shorthand such as "$1.2k", "3x" or "2nd" is refused rather than guessed at.
+
+**Two writers, one check:**
+
+- **Template writer** (offline): describes the result by its shape: one figure, a trend over time (first vs last, highest, lowest, total), a breakdown (leader and its share, runners-up, lowest, total) or a list. It adds totals and shares only for amounts that add up, never for averages such as revenue per customer.
+- **Claude writer** ([`sqlhelper/claude_report.py`](sqlhelper/claude_report.py), optional): gets the question and the result table and writes 2–4 sentences. If the check finds a number it can't trace, the model is told which ones and gets one retry. If it fails again, or the reply is cut off or refused, the reader gets the template text and a note, never the unchecked text. Results over 50 rows aren't sent. It's tested with a fake client and the real SDK against a stubbed network, like the Claude backend; no API calls were made.
+
+**Worked examples** (gold answers, template writer, questions shortened; all 32 in [`results/REPORTS.md`](results/REPORTS.md), every one passes the check):
+
+| Question | Summary |
+|---|---|
+| What was our total revenue across all years? | Revenue: $2,328.60. |
+| Show revenue by year. | Revenue by year, 2009 to 2013: $449.46 in 2009 and $450.58 in 2013 (+0.2%). Highest in 2010 ($481.45), lowest in 2009 ($449.46). Total $2,328.60 over 5 years. |
+| Which 5 countries generated the most revenue? | Revenue by country (5 countries): highest USA with $523.06 (38.2% of the total shown); then Canada with $303.96 and France with $195.10; lowest Germany with $156.48. These 5 rows add up to $1,368.70. |
+| Which 3 albums sold the most tracks? | Units by album (3 albums): highest Minha Historia (artist: Chico Buarque) with 27 (34.6% of the total shown); then Greatest Hits (artist: Lenny Kravitz) with 26; lowest Unplugged (artist: Eric Clapton) with 25. These 3 rows add up to 78. |
+
+If the USA figure in the third example is mistyped as "$532.06", the check refuses the text: `$532.06` isn't in the result or anything worked out from it.
+
+**How well does the check work? Errors planted on purpose** ([`scripts/write_reports.py`](scripts/write_reports.py)). The 32 summaries contain 139 numbers, 114 of them figures (the rest are labels such as years, or numbers from the question). Every figure was changed one way at a time: scaled by ±1/5/10/50%, given a typo (two neighbouring digits swapped, last digit one off), or swapped with another figure of the same kind. Each changed summary went back through the check:
+
+![The number check refuses most changed figures, but none of the swapped ones](results/charts/report_check.png)
+
+| Changed figure | Cases | Refused by the check |
+|---|---|---|
+| Money, percentages, decimals, numbers of 100+ | 788 | **788 (100%)** |
+| Whole numbers under 100 (counts, row counts) | 318 | 265 (83.3%) |
+| Two figures swapped with each other | 223 | **0 (0%)** |
+
+- **Every changed amount was caught.** All the misses are small whole numbers that happen to equal another allowed value: 12 customers is also the gap between two countries' counts, 26 units is also another album's units, and "4" is in "Protected MPEG-4 video file". The more values a result allows, the more often a small count matches by chance.
+- **A swap can't be caught this way.** If "USA $523.06, Canada $303.96" becomes "USA $303.96, Canada $523.06", both numbers are still real. The check proves a number *exists* in the result, not that it's attached to the right label. That's why the result table is always shown under the summary, and why the template writer, which reads values straight from their rows, is the default.
+
+**Tests** (33 new, 159 in all): the check's rules one by one, the template writer on every result shape, the template passing its own check on 400 random results (also run once on 40,000, with none failing), the Claude writer's retry and fallback, and `ask`. The random test caught two template bugs before commit: a "0.0%" change on a trend with one value, and a 100% share when the other rows were empty. Mutation checks on the checker (ignoring the sign, looser rounding, mixing up % and plain numbers, accepting shorthand) and on the Claude writer (dropping the failed numbers from the retry message, skipping the check) are all caught. The shorthand one survived at first, because the test's number wasn't in the result anyway; the test now uses figures that are.
+
+**Try it** ([`scripts/ask.py`](scripts/ask.py)): `python -m scripts.ask "Show revenue by year."` prints the SQL, the guarded result and the summary, with how many of its numbers were traced. A decline, an abstain or a guard rejection is shown with its reason instead.
+
 ## So what for the business (so far)
 
 - **Safety can't depend on the model behaving.** The privacy and write rules are enforced by the database engine, so a confused or manipulated model gets a clear refusal, not the data.
@@ -142,6 +181,8 @@ The last one is a real bug: dimensions are matched longest word first rather tha
 - **Test on wording the tool hasn't seen, or the score flatters it.** The same rules scored 59% on the questions they were built from and 19% on the same questions reworded. A demo on the builder's own questions would have overstated it three times over.
 - **Track "right when it answered", not just accuracy.** Abstaining costs a manager a minute; a wrong number can end up in a board pack. The offline path's trustworthiness fell from 90% to 38% on new wording, and that's the figure that decides whether it can go in front of users.
 - **Build the LLM path to be scored, not demoed.** It goes through the same guard and is scored on the same questions as the offline path, and every call is counted and costed. A model or prompt change then becomes a measured decision: roughly $0.20 buys a full score on both sets.
+- **Check the words, not just the SQL.** A right query can still be misquoted in the summary. The number check refused every planted change to a money, percentage or decimal figure (788 of 788), so a summary that passes is quoting real figures. It can't tell a figure from the wrong row (0 of 223 swaps caught), so the table always goes under the text.
+- **An LLM summary has to fall back, not fail open.** If Claude's text fails the check twice, the reader gets the template text and a note. A checked plain sentence is worth more than a fluent unchecked one.
 - **A keyword layer suits fixed menus, not free text.** With pick-lists for metric, dimension and filter, the same semantic layer would be dependable. For free-text questions it isn't, which is the case for an LLM backend. That backend has to beat 19% accuracy and 38% right-when-answered on the held-out set, and decline all 7 must-decline cases, before it's worth its cost.
 
 ## How to run
@@ -153,11 +194,14 @@ python scripts/download_data.py          # 1.07 MB, SHA-256 checked
 python -m scripts.build_schema_card      # docs/SCHEMA_CARD.md
 python -m scripts.check_gold             # results/GOLD_ANSWERS.md, exits 1 on any failed check
 python -m scripts.evaluate               # offline backend on both sets: results/EVAL_offline.md, CSV, chart (~2 s)
-pytest                                   # 126 tests; the guard tests use a small fixture database, the Claude tests a fake client
+python -m scripts.write_reports          # checked summaries of the 32 gold answers + planted errors: results/REPORTS.md, CSV, chart (~2 s)
+python -m scripts.ask "Show revenue by year."   # one question end to end, offline
+pytest                                   # 159 tests; the guard tests use a small fixture database, the Claude tests a fake client
 
 # Optional, needs an Anthropic API key (about $0.20 a run, see Part 3):
 cp .env.example .env                     # then put your key in .env (gitignored)
 python -m scripts.evaluate --backend claude   # results/EVAL_claude.md, CSV, chart
+python -m scripts.ask --backend claude "Who are our top 3 customers by total spend?"   # Claude SQL + checked Claude summary
 ```
 
 ## Project structure
@@ -175,12 +219,15 @@ sqlhelper/offline.py       offline backend (semantic layer: decline, abstain or 
 sqlhelper/claude.py        Claude backend (schema card prompt, JSON answer, one retry on a guard rejection)
 config/claude.yml          model, token limit, retries and list price for the Claude backend
 sqlhelper/evaluate.py      evaluation harness (outcomes, accuracy, right when it answered)
+sqlhelper/report.py        number check + template report writer
+sqlhelper/claude_report.py Claude report writer (same check, one retry, template fallback)
 eval/questions.yml         32 answerable + 7 must-decline questions with gold SQL (development set)
 eval/heldout.yml           the same 39 questions reworded (held-out set)
-scripts/                   download, build the card, check the gold set, evaluate a backend
+scripts/                   download, build the card, check the gold set, evaluate a backend, write reports, ask
 docs/SCHEMA_CARD.md        what the model sees
 results/GOLD_ANSWERS.md    gold answers and checks
 results/EVAL_offline.md    offline backend scores, failures and abstain reasons
+results/REPORTS.md         checked summaries of the gold answers and the planted-error results
 ```
 
 ## Roadmap
@@ -189,4 +236,5 @@ results/EVAL_offline.md    offline backend scores, failures and abstain reasons
 - [x] Part 2: an offline path (no API key needed), a held-out paraphrase set and the evaluation harness, with accuracy by level and area plus a failure analysis
 - [x] Part 3: Claude backend (prompted with the schema card, a JSON answer checked against a schema, one retry using the guard's reason), tested with a fake client and the real SDK against a stubbed network
 - [ ] Part 3b: score the Claude backend on both sets. Needs `ANTHROPIC_API_KEY` in a gitignored `.env` (about $0.20 a run)
-- [ ] Part 4: report writer (every number in the text must come from the result), then findings and recommendations
+- [x] Part 4: report writer (template, plus an optional Claude writer) with a number check, measured by planting errors in the summaries, and an `ask` command
+- [ ] Final write-up: TL;DR, ranked recommendations, limitations
