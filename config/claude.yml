@@ -1,0 +1,18 @@
+# Settings for the Claude backend (sqlhelper/claude.py). The API key is never
+# stored here: it comes from ANTHROPIC_API_KEY, read from a gitignored .env.
+
+# Small, cheap model: each question is one short SQL answer. Haiku 4.5 supports
+# structured outputs, so every reply is checked against a JSON schema by the API.
+model: claude-haiku-4-5
+max_tokens: 1024
+
+# When the guard rejects the SQL, the model sees the guard's reason and gets
+# this many more tries. One is enough to fix a typo or a restricted column;
+# more would just hide a model that keeps writing bad SQL.
+guard_retries: 1
+
+# Price per million tokens in US dollars, only used to report what a run cost.
+# Haiku 4.5 list price; check https://claude.com/pricing before relying on it.
+price_per_mtok:
+  input: 1.00
+  output: 5.00
