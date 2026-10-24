@@ -1,8 +1,16 @@
 # LLM SQL report helper
 
-**Status: in progress.** Parts 1–4 are built: guard rails, schema card and evaluation set; an offline backend and the scored evaluation; a Claude backend (tested against a mocked API, not scored yet, because no API key is set up); and a report writer whose numbers are checked against the result. The final write-up comes next ([roadmap](#roadmap)).
+> **Status: complete**, with one step waiting on an API key. Four parts: guard rails, schema card and evaluation set (Part 1); an offline backend and the scored evaluation (Part 2); a Claude backend, built and tested against a mocked API (Part 3); and a report writer whose numbers are checked against the result (Part 4). 159 offline tests. **The Claude backend's score is pending a key** ([Part 3b](#roadmap), about $0.20 a run), so every score below is the offline path's. [Recommendations](#recommendations) and [limitations](#limitations) are at the end.
 
 Ask a business question in plain English, get back the SQL, the result and a short report. The point of this project is the part that makes that **safe and measurable**: a guard that the database itself enforces, a shared definition of each metric, and a set of business questions with known answers to score any model against.
+
+## TL;DR
+
+- **Data safety is enforced by the database, not the model.** An SQLite authorizer blocks personal columns and anything but `SELECT` however the SQL is written. It rejects the naive SQL for all 5 privacy and write requests in the evaluation set, and a test shows the file is byte-identical after an attempted `DELETE`.
+- **A score on the builder's own questions flatters the tool.** The offline path (a keyword semantic layer, no API key) got 19 of 32 questions right (59%) on the wording it was built from, and 6 of 32 (19%) on the same questions reworded. When it did give a number, it was right 90% of the time on the first set and **38%** on the second.
+- **So keyword matching suits pick-lists, not free text.** For free-text questions an LLM backend is the case to test, and it has a bar to clear on the reworded set: 19% accuracy, 38% right-when-answered, and all 7 must-decline questions declined (the offline path managed 4).
+- **The summary's numbers are checked too.** The number check refused every planted change to a money, percentage or decimal figure (788 of 788) but none of the 223 swaps between two real figures, so the result table always goes under the text.
+- **The Claude backend is built and costed, not scored.** One scored run on both sets is 78 questions, estimated at about $0.20. Until then, nothing here says how well an LLM does on these questions.
 
 ## The business problem
 
@@ -173,7 +181,7 @@ If the USA figure in the third example is mistyped as "$532.06", the check refus
 
 **Try it** ([`scripts/ask.py`](scripts/ask.py)): `python -m scripts.ask "Show revenue by year."` prints the SQL, the guarded result and the summary, with how many of its numbers were traced. A decline, an abstain or a guard rejection is shown with its reason instead.
 
-## So what for the business (so far)
+## So what for the business
 
 - **Safety can't depend on the model behaving.** The privacy and write rules are enforced by the database engine, so a confused or manipulated model gets a clear refusal, not the data.
 - **"How accurate is it?" needs a measured answer.** With 32 questions and known answers, any model or prompt change gets a score before it goes in front of managers.
@@ -184,6 +192,21 @@ If the USA figure in the third example is mistyped as "$532.06", the check refus
 - **Check the words, not just the SQL.** A right query can still be misquoted in the summary. The number check refused every planted change to a money, percentage or decimal figure (788 of 788), so a summary that passes is quoting real figures. It can't tell a figure from the wrong row (0 of 223 swaps caught), so the table always goes under the text.
 - **An LLM summary has to fall back, not fail open.** If Claude's text fails the check twice, the reader gets the template text and a note. A checked plain sentence is worth more than a fluent unchecked one.
 - **A keyword layer suits fixed menus, not free text.** With pick-lists for metric, dimension and filter, the same semantic layer would be dependable. For free-text questions it isn't, which is the case for an LLM backend. That backend has to beat 19% accuracy and 38% right-when-answered on the held-out set, and decline all 7 must-decline cases, before it's worth its cost.
+
+## Recommendations
+
+For a team thinking of letting managers ask the warehouse questions in plain English. They're ranked by how much harm they prevent, and each is tied to a measured result above. Owners are roles.
+
+| # | Recommendation | Why (measured) | Owner |
+|---|---|---|---|
+| 1 | **Enforce data access in the database: a read-only connection plus column-level rules.** Treat the model's own declines as a courtesy, not a control. | On reworded questions the decline step missed 3 of 7 must-decline cases (2 abstained, and "Remove all the 2009 invoices" ran a read-only count). Nothing leaked or changed, because the guard rejects the naive SQL for all 5 privacy and write cases inside SQLite, and the file is byte-identical after an attempted `DELETE` (Parts 1–2). | Data engineer, with the data protection officer |
+| 2 | **Gate every model or prompt change on a held-out score, written before the change, and report "right when it answered" next to accuracy.** | The same rules scored 59% on the wording they were built from and 19% reworded; right-when-answered fell from 90% to 38% (Part 2). A demo on the builder's own questions would have overstated accuracy about three times. | Analytics / BI lead |
+| 3 | **Don't put the keyword path in front of free-text users. Use it behind pick-lists** (metric, dimension, filter), where the wording is fixed. | 10 wrong numbers on the reworded set, from unknown words ("biggest", "markets"), the wrong metric ("average invoice" counted invoices) and dropped conditions ("just a single customer") (Part 2). | BI product owner |
+| 4 | **Keep metric definitions in one reviewed file that finance signs off, and test every fact in it against the data.** | 11 gold answers match an independent project's published figures, and that cross-check caught a plausible year-on-year query that dropped 2010 (Part 1). Every note on the schema card is checked by a test. | Finance (metric owner), with the analytics lead |
+| 5 | **Always show the result table under a generated summary, and default to the template writer.** | The number check caught 788 of 788 planted changes to money, percentage and decimal figures, but 0 of 223 swaps between two real figures, and 265 of 318 changed small counts (83.3%) (Part 4). | BI product owner |
+| 6 | **Buy one scored Claude run (about $0.20) before deciding on an LLM backend, and adopt it only if it clears the offline bar on the reworded set.** | The backend, harness and run report are ready; the bar is 19% accuracy, 38% right-when-answered and 7 of 7 declines (Part 3). Without a score, any claim about LLM accuracy here would be a guess. | Analytics lead (budget holder) |
+| 7 | **Treat an abstention as a hand-off to an analyst, and log the reasons as the backlog.** | 16 of 32 reworded questions were abstained, each with a reason. 8 of the 26 misses were vocabulary gaps ("sales", "tracks sold") that one reviewed line each would cover (Part 2). An abstention costs a manager a minute; a wrong number can reach a board pack. | Analytics team |
+| 8 | **Fix the known offline bugs, then write a fresh held-out set before scoring again.** | The reading-order bug ("each support agent's customers" grouped by both, 59 rows) and the vocabulary gaps were left unfixed to keep the held-out score blind (Part 2). Once they're fixed against that set, it's no longer unseen. | Data engineer |
 
 ## How to run
 
@@ -237,4 +260,22 @@ results/REPORTS.md         checked summaries of the gold answers and the planted
 - [x] Part 3: Claude backend (prompted with the schema card, a JSON answer checked against a schema, one retry using the guard's reason), tested with a fake client and the real SDK against a stubbed network
 - [ ] Part 3b: score the Claude backend on both sets. Needs `ANTHROPIC_API_KEY` in a gitignored `.env` (about $0.20 a run)
 - [x] Part 4: report writer (template, plus an optional Claude writer) with a number check, measured by planting errors in the summaries, and an `ask` command
-- [ ] Final write-up: TL;DR, ranked recommendations, limitations
+- [x] Final write-up: TL;DR, ranked recommendations, limitations
+
+## Limitations
+
+- **The LLM backend hasn't been scored.** Its tests prove it builds the right requests and handles every kind of reply, not that its SQL is right. The $0.20 cost is estimated from the prompt size, not measured. Once a run happens it will be one run: the SDK version used here takes no `temperature`, so a second run could score differently.
+- **One small, fictional database.** Chinook has 11 tables and 412 invoices, so the whole schema card (about 1,200 tokens) fits in one prompt. A real warehouse with hundreds of tables would need the card split up and the relevant part looked up per question, which this project doesn't do.
+- **A small question set, written by one person.** 32 answerable and 7 must-decline questions, each worth about 3 points of accuracy, and both wordings come from the same author. Real users will phrase things in ways neither set covers, so treat the scores as a comparison between backends, not as a forecast for users.
+- **The held-out set is now spent for the offline path.** It stayed blind because nothing was changed after scoring on it. Any fix made with its failures in view needs a new set to be measured fairly (recommendation 8).
+- **The comparator is lenient on purpose.** Extra columns, column order and, outside rankings, row order don't count against an answer. That fits "did it get the number right?", but an answer padded with unneeded columns still scores as correct.
+- **The number check proves a number exists, not where it belongs.** It caught none of the 223 swaps and 83.3% of changed small counts (Part 4). An attribution check is listed below as an extension.
+- **The guard is built on SQLite's authorizer.** The same policy on Postgres, Snowflake or BigQuery would use read-only roles, views and column-level grants; the rules carry over, the code doesn't.
+
+## Possible extensions
+
+- An **attribution check** for the summaries: a figure must appear in the same sentence as its row's label, which would catch swaps.
+- A **fresh held-out set** from a second author, then the bug fixes and vocabulary from recommendation 8, scored on it.
+- **Several Claude runs** per change, to report a range instead of one number.
+- A **pick-list front end** (for example in Streamlit) over the semantic layer, where the offline path is dependable.
+- **Retrieval for larger schemas**: send the model only the tables and notes a question needs.
